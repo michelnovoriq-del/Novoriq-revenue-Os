@@ -1,0 +1,21 @@
+{
+  "name": "novoriq-revenue-os",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace @novoriq/api\" \"npm run dev --workspace @novoriq/web\"",
+    "build": "npm run build --workspace @novoriq/api && npm run build --workspace @novoriq/web",
+    "lint": "npm run lint --workspace @novoriq/api && npm run lint --workspace @novoriq/web",
+    "test": "npm run test --workspace @novoriq/api && npm run test --workspace @novoriq/web",
+    "typecheck": "npm run typecheck --workspace @novoriq/api && npm run typecheck --workspace @novoriq/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
