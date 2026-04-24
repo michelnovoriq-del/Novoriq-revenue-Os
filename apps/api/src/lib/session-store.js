@@ -1,36 +1,84 @@
-import { env } from "../config/env.js";
-import { readJsonFile, writeJsonFile } from "./file-store.js";
+import { prisma } from "./prisma.js";
 
-const emptyState = { sessions: [] };
+function toDate(value) {
+  if (!value) {
+    return null;
+  }
 
-async function readState() {
-  return readJsonFile(env.sessionStoreFile, emptyState);
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
-async function writeState(state) {
-  await writeJsonFile(env.sessionStoreFile, state);
+function mapSession(session) {
+  if (!session) {
+    return null;
+  }
+
+  return {
+    id: session.id,
+    userId: session.userId,
+    tokenHash: session.tokenHash ?? null,
+    expiresAt: toDate(session.expiresAt),
+    fingerprintId: session.fingerprintId ?? null,
+    ipAddress: session.ipAddress ?? null,
+    country: session.country ?? null,
+    city: session.city ?? null,
+    userAgent: session.userAgent ?? null,
+    createdAt: toDate(session.createdAt)
+  };
 }
 
 export async function createSession(session) {
-  const state = await readState();
-  state.sessions.push(session);
-  await writeState(state);
-  return session;
+  const createdSession = await prisma.session.create({
+    data: {
+      id: session.id,
+      userId: session.userId,
+      tokenHash: session.tokenHash ?? null,
+      expiresAt: toDate(session.expiresAt) ?? undefined,
+      fingerprintId: session.fingerprintId ?? null,
+      ipAddress: session.ipAddress ?? null,
+      country: session.country ?? null,
+      city: session.city ?? null,
+      userAgent: session.userAgent ?? null,
+      createdAt: toDate(session.createdAt) ?? undefined
+    }
+  });
+
+  return mapSession(createdSession);
 }
 
 export async function findSessionById(id) {
-  const state = await readState();
-  return state.sessions.find((session) => session.id === id) ?? null;
+  const session = await prisma.session.findUnique({
+    where: { id }
+  });
+
+  return mapSession(session);
+}
+
+export async function findLatestEvidenceSessionByUserId(userId) {
+  const session = await prisma.session.findFirst({
+    where: {
+      userId,
+      fingerprintId: {
+        not: null
+      }
+    },
+    orderBy: {
+      createdAt: "desc"
+    }
+  });
+
+  return mapSession(session);
 }
 
 export async function deleteSession(id) {
-  const state = await readState();
-  state.sessions = state.sessions.filter((session) => session.id !== id);
-  await writeState(state);
+  await prisma.session.deleteMany({
+    where: { id }
+  });
 }
 
 export async function deleteSessionsForUser(userId) {
-  const state = await readState();
-  state.sessions = state.sessions.filter((session) => session.userId !== userId);
-  await writeState(state);
+  await prisma.session.deleteMany({
+    where: { userId }
+  });
 }

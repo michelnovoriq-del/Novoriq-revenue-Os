@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiRequest } from "../../lib/api";
+import { WHOP_PLANS } from "../../lib/whop-plans";
+
+const ACCESS_STATUS_POLL_MS = 15000;
 
 export default function DemoPage() {
   const router = useRouter();
   const [state, setState] = useState({
     loading: true,
-    unlocking: false,
     error: "",
     payload: null
   });
@@ -24,7 +26,6 @@ export default function DemoPage() {
         if (active) {
           setState({
             loading: false,
-            unlocking: false,
             error: "",
             payload
           });
@@ -47,7 +48,6 @@ export default function DemoPage() {
 
         setState({
           loading: false,
-          unlocking: false,
           error: error.message || "Unable to load demo",
           payload: null
         });
@@ -56,31 +56,17 @@ export default function DemoPage() {
 
     loadDemo();
 
+    const pollInterval = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        loadDemo();
+      }
+    }, ACCESS_STATUS_POLL_MS);
+
     return () => {
       active = false;
+      window.clearInterval(pollInterval);
     };
   }, [router]);
-
-  async function handleUnlock() {
-    setState((current) => ({ ...current, unlocking: true, error: "" }));
-
-    try {
-      const response = await apiRequest("/api/dev/unlock", { method: "POST" });
-      router.replace(response.redirectTo || "/dashboard");
-    } catch (error) {
-      const redirectTo = error.payload?.redirectTo;
-      if (redirectTo) {
-        router.replace(redirectTo);
-        return;
-      }
-
-      setState((current) => ({
-        ...current,
-        unlocking: false,
-        error: error.message || "Unable to unlock access"
-      }));
-    }
-  }
 
   if (state.loading) {
     return (
@@ -106,8 +92,9 @@ export default function DemoPage() {
 
         <h1>Preview the revenue cockpit before you unlock it.</h1>
         <p className="lede">
-          Explore simulated metrics, fake analytics, and example activity. Full access
-          opens the live dashboard for 48 hours.
+          Explore simulated metrics, fake analytics, and example activity. Payments are
+          handled by Whop, and the backend unlocks access only after the Whop webhook is
+          received and applied to your account.
         </p>
 
         <section className="metrics-grid">
@@ -150,31 +137,36 @@ export default function DemoPage() {
           </div>
         </section>
 
-        <section className="unlock-banner">
-          <div>
-            <p className="eyebrow">Unlock</p>
-            <h2>{payload?.unlockOffer?.cta || "Unlock Full Access — $10 (48 hours)"}</h2>
-            <p className="supporting-copy">
-              Temporary dev endpoint for now. The backend owns the access window and can
-              later swap this out for a Whop webhook without changing the UI contract.
-            </p>
+        <section className="detail-panel">
+          <div className="panel-heading">
+            <h2>Unlock with Whop</h2>
           </div>
-          <div className="button-row">
-            <button
-              className="primary-button"
-              type="button"
-              onClick={handleUnlock}
-              disabled={state.unlocking}
-            >
-              {state.unlocking
-                ? "Unlocking..."
-                : payload?.unlockOffer?.cta || "Unlock Full Access — $10 (48 hours)"}
-            </button>
-            <Link className="secondary-link" href="/login">
-              Back to sign in
-            </Link>
+          <p className="supporting-copy">
+            Choose the plan you want, complete checkout on Whop, then return here. This
+            page re-checks your access automatically while you are signed in.
+          </p>
+          <div className="metrics-grid">
+            {WHOP_PLANS.map((plan) => (
+              <article className="metric-card" key={plan.id}>
+                <span>{plan.name}</span>
+                <strong>{plan.priceLabel}</strong>
+                <em>{plan.termLabel}</em>
+                <p>{plan.description}</p>
+                <div className="button-row">
+                  <a className="primary-link" href={plan.checkoutUrl} rel="noreferrer">
+                    Go to checkout
+                  </a>
+                </div>
+              </article>
+            ))}
           </div>
         </section>
+
+        <div className="button-row">
+          <Link className="secondary-link" href="/login">
+            Back to sign in
+          </Link>
+        </div>
 
         {state.error ? <p className="form-error">{state.error}</p> : null}
       </section>

@@ -180,6 +180,12 @@ h2 {
   font-size: 14px;
 }
 
+.form-success {
+  margin: 0;
+  color: #0f766e;
+  font-size: 14px;
+}
+
 .auth-footer {
   margin-top: 18px;
   color: var(--muted);
@@ -313,12 +319,65 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.admin-metrics-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.admin-detail-grid {
+  align-items: start;
+}
+
+.admin-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 860px;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-table th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.admin-table td {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.admin-action-button {
+  min-height: 40px;
+  width: auto;
+}
+
+.admin-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 @media (max-width: 1024px) {
   .app-frame {
     gap: 24px;
   }
 
   .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-metrics-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -410,6 +469,10 @@ h2 {
   }
 
   .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-metrics-grid {
     grid-template-columns: 1fr;
   }
 

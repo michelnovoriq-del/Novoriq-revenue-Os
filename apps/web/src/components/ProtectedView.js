@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiRequest } from "../lib/api";
+import { ensureEvidenceSession, logEvidenceActivity } from "../lib/evidence-client";
 
 export function ProtectedView({ scope, title, description }) {
   const router = useRouter();
@@ -12,6 +13,7 @@ export function ProtectedView({ scope, title, description }) {
     error: "",
     payload: null
   });
+  const fingerprintApiKey = state.payload?.evidence?.fingerprintApiKey || "";
 
   useEffect(() => {
     let active = true;
@@ -54,7 +56,48 @@ export function ProtectedView({ scope, title, description }) {
     };
   }, [router, scope]);
 
+  useEffect(() => {
+    if (scope !== "dashboard" || state.loading || !state.payload) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    async function startEvidence() {
+      try {
+        await ensureEvidenceSession(fingerprintApiKey);
+
+        if (!cancelled) {
+          await logEvidenceActivity("dashboard_view", {
+            scope,
+            stripeConfigured: state.payload?.user?.stripeConfigured === true
+          }, fingerprintApiKey);
+        }
+      } catch {
+        return;
+      }
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        logEvidenceActivity("dashboard_visible", { scope }, fingerprintApiKey).catch(() => {});
+      }
+    }
+
+    startEvidence();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fingerprintApiKey, scope, state.loading, state.payload]);
+
   async function handleLogout() {
+    if (scope === "dashboard") {
+      await logEvidenceActivity("logout_click", { scope }, fingerprintApiKey).catch(() => {});
+    }
+
     await apiRequest("/auth/logout", { method: "POST" });
     router.replace("/login");
   }
@@ -71,9 +114,15 @@ export function ProtectedView({ scope, title, description }) {
     );
   }
 
-  const expiryLabel = state.payload?.user?.subscription_expires_at
-    ? new Date(state.payload.user.subscription_expires_at).toLocaleString()
+  const expiryLabel = state.payload?.user?.accessExpiration || state.payload?.user?.subscription_expires_at
+    ? new Date(
+        state.payload.user.accessExpiration || state.payload.user.subscription_expires_at
+      ).toLocaleString()
     : null;
+  const subscriptionTier = state.payload?.user?.subscriptionTier;
+  const performanceFeePercentage = state.payload?.user?.performanceFeePercentage;
+  const unpaidPerformanceBalance = state.payload?.user?.unpaidPerformanceBalance;
+  const stripeConfigured = state.payload?.user?.stripeConfigured === true;
 
   return (
     <main className="app-shell">
@@ -87,12 +136,42 @@ export function ProtectedView({ scope, title, description }) {
         {expiryLabel ? (
           <p className="supporting-copy">Access window ends {expiryLabel}</p>
         ) : null}
+        {subscriptionTier ? (
+          <p className="supporting-copy">
+            Active plan: {subscriptionTier}
+            {typeof performanceFeePercentage === "number"
+              ? ` • Performance fee ${(performanceFeePercentage * 100).toFixed(0)}%`
+              : ""}
+          </p>
+        ) : null}
+        {scope === "dashboard" ? (
+          <p className="supporting-copy">
+            Stripe restricted key: {stripeConfigured ? "Configured" : "Not configured"}
+          </p>
+        ) : null}
+        {scope === "dashboard" && typeof unpaidPerformanceBalance === "number" ? (
+          <p className="supporting-copy">
+            Unpaid performance balance: ${unpaidPerformanceBalance.toFixed(2)}
+          </p>
+        ) : null}
         {state.error ? <p className="form-error">{state.error}</p> : null}
         <div className="button-row">
           <button className="primary-button" onClick={handleLogout}>
             Logout
           </button>
-          <Link className="secondary-link" href="/">
+          <Link
+            className="secondary-link"
+            href="/"
+            onClick={() => {
+              if (scope === "dashboard") {
+                logEvidenceActivity(
+                  "home_navigation_click",
+                  { destination: "/" },
+                  fingerprintApiKey
+                ).catch(() => {});
+              }
+            }}
+          >
             Home
           </Link>
         </div>

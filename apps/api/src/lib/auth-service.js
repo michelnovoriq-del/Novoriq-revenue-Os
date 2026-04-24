@@ -13,8 +13,15 @@ function sanitizeUser(user) {
     id: user.id,
     email: user.email,
     role: user.role,
+    hasPaid: user.hasPaid,
     hasAccess: user.hasAccess,
+    subscriptionTier: user.subscriptionTier,
+    performanceFeePercentage: user.performanceFeePercentage,
+    unpaidPerformanceBalance: user.unpaidPerformanceBalance,
+    totalRecoveredRevenue: user.totalRecoveredRevenue,
+    accessExpiration: user.accessExpiration,
     subscription_expires_at: user.subscription_expires_at,
+    stripeConfigured: user.stripeConfigured,
     createdAt: user.createdAt
   };
 }
@@ -50,8 +57,15 @@ export async function registerUser({ email, password }) {
     email,
     password_hash,
     role: USER_ROLES.USER,
+    hasPaid: false,
     hasAccess: false,
+    subscriptionTier: null,
+    performanceFeePercentage: null,
+    unpaidPerformanceBalance: 0,
+    totalRecoveredRevenue: 0,
+    accessExpiration: null,
     subscription_expires_at: null,
+    stripeRestrictedKey: null,
     createdAt: Date.now()
   });
 

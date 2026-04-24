@@ -1,11 +1,15 @@
-import { hasActiveAccess, hasSubscriptionExpired } from "../lib/access-service.js";
+import {
+  hasActiveAccess,
+  hasPaidAccess,
+  hasSubscriptionExpired
+} from "../lib/access-service.js";
 
 function rejectWithRedirect(res, error, redirectTo) {
   return res.status(403).json({ error, redirectTo });
 }
 
 export function requireDemoAccess(req, res, next) {
-  if (req.user.hasAccess === false) {
+  if (!hasPaidAccess(req.user)) {
     return next();
   }
 
@@ -21,12 +25,16 @@ export function requireDemoAccess(req, res, next) {
 }
 
 export function requireDashboardAccess(req, res, next) {
-  if (req.user.hasAccess === false) {
+  if (!hasPaidAccess(req.user)) {
     return rejectWithRedirect(res, "Access inactive", "/demo");
   }
 
   if (hasSubscriptionExpired(req.user)) {
     return rejectWithRedirect(res, "Subscription expired", "/pricing");
+  }
+
+  if (!hasActiveAccess(req.user)) {
+    return rejectWithRedirect(res, "Access inactive", "/pricing");
   }
 
   return next();

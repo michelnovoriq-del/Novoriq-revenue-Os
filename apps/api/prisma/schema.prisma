@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                       String        @id @default(uuid()) @db.Uuid
+  email                    String        @unique
+  passwordHash             String
+  role                     String        @default("user")
+  hasPaid                  Boolean       @default(false)
+  hasAccess                Boolean       @default(false)
+  accessExpiration         DateTime?
+  subscriptionTier         String?
+  performanceFeePercentage Float?
+  unpaidPerformanceBalance Float         @default(0)
+  totalRecoveredRevenue    Float         @default(0)
+  stripeRestrictedKey      String?
+  webhookSecret            String?
+  whopLastEventId          String?
+  whopLastEventType        String?
+  whopLastPlanId           String?
+  whopLastPaymentId        String?
+  whopLastMembershipId     String?
+  whopLastProcessedAt      DateTime?
+  createdAt                DateTime      @default(now())
+  activityLogs             ActivityLog[]
+  evidences                Evidence[]
+  recoveryLogs             RecoveryLog[]
+  sessions                 Session[]
+  stripeEvents             StripeEvent[]
+
+  @@map("users")
+}
+
+model Session {
+  id            String        @id
+  userId        String        @db.Uuid
+  tokenHash     String?
+  expiresAt     DateTime?
+  fingerprintId String?
+  ipAddress     String?
+  country       String?
+  city          String?
+  userAgent     String?
+  createdAt     DateTime      @default(now())
+  activityLogs  ActivityLog[]
+  evidences     Evidence[]
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, createdAt])
+  @@map("sessions")
+}
+
+model Evidence {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  sessionId       String?
+  chargeId        String   @unique
+  disputeId       String?
+  disputeStatus   String   @default("none")
+  recoveredAmount Float?
+  receiptIp       String   @default("")
+  chargeTimestamp DateTime
+  createdAt       DateTime @default(now())
+  session         Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionId])
+  @@map("evidences")
+}
+
+model RecoveryLog {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  chargeId        String
+  disputeId       String
+  recoveredAmount Float
+  platformFee     Float
+  status          String   @default("pending")
+  billedAt        DateTime?
+  createdAt       DateTime @default(now())
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([chargeId])
+  @@index([disputeId])
+  @@map("recovery_logs")
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  sessionId String
+  action    String
+  metadata  Json
+  createdAt DateTime @default(now())
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([sessionId, createdAt])
+  @@map("activity_logs")
+}
+
+model StripeEvent {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @db.Uuid
+  eventId            String   @unique
+  eventType          String
+  payload            Json
+  processingStatus   String   @default("pending")
+  processingError    String?
+  processingAttempts Int      @default(0)
+  processedAt        DateTime?
+  createdAt          DateTime @default(now())
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([processingStatus, createdAt])
+  @@map("stripe_events")
+}

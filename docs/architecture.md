@@ -15,7 +15,7 @@
 
 ## Immediate backlog
 
-1. Move the file-backed repositories to Postgres.
+1. Add automated tests for Prisma-backed auth, payments, and Stripe webhooks.
 2. Add email verification and password reset flows.
-3. Add tenant and Stripe account models.
-4. Add automated tests for auth and route protection.
+3. Add tenant-level configuration and operator settings pages.
+4. Add worker queues for asynchronous Stripe and dispute automation jobs.

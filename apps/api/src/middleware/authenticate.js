@@ -21,8 +21,15 @@ export async function authenticate(req, res, next) {
       id: user.id,
       email: user.email,
       role: user.role,
+      hasPaid: user.hasPaid,
       hasAccess: user.hasAccess,
+      subscriptionTier: user.subscriptionTier,
+      performanceFeePercentage: user.performanceFeePercentage,
+      unpaidPerformanceBalance: user.unpaidPerformanceBalance,
+      totalRecoveredRevenue: user.totalRecoveredRevenue,
+      accessExpiration: user.accessExpiration,
       subscription_expires_at: user.subscription_expires_at,
+      stripeConfigured: user.stripeConfigured,
       createdAt: user.createdAt
     };
 

@@ -4,12 +4,14 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiRequest } from "../../lib/api";
+import { WHOP_PLANS } from "../../lib/whop-plans";
+
+const ACCESS_STATUS_POLL_MS = 15000;
 
 export default function PricingPage() {
   const router = useRouter();
   const [state, setState] = useState({
     loading: true,
-    unlocking: false,
     error: "",
     expiresAt: null
   });
@@ -17,8 +19,10 @@ export default function PricingPage() {
   useEffect(() => {
     let active = true;
 
-    apiRequest("/auth/me")
-      .then((response) => {
+    async function loadPricing() {
+      try {
+        const response = await apiRequest("/auth/me");
+
         if (!active) {
           return;
         }
@@ -35,12 +39,10 @@ export default function PricingPage() {
 
         setState({
           loading: false,
-          unlocking: false,
           error: "",
-          expiresAt: response.user?.subscription_expires_at || null
+          expiresAt: response.user?.accessExpiration || response.user?.subscription_expires_at || null
         });
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!active) {
           return;
         }
@@ -52,31 +54,25 @@ export default function PricingPage() {
 
         setState({
           loading: false,
-          unlocking: false,
           error: error.message || "Unable to load pricing",
           expiresAt: null
         });
-      });
+      }
+    }
+
+    loadPricing();
+
+    const pollInterval = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        loadPricing();
+      }
+    }, ACCESS_STATUS_POLL_MS);
 
     return () => {
       active = false;
+      window.clearInterval(pollInterval);
     };
   }, [router]);
-
-  async function handleUnlock() {
-    setState((current) => ({ ...current, unlocking: true, error: "" }));
-
-    try {
-      const response = await apiRequest("/api/dev/unlock", { method: "POST" });
-      router.replace(response.redirectTo || "/dashboard");
-    } catch (error) {
-      setState((current) => ({
-        ...current,
-        unlocking: false,
-        error: error.message || "Unable to renew access"
-      }));
-    }
-  }
 
   if (state.loading) {
     return (
@@ -84,7 +80,7 @@ export default function PricingPage() {
         <section className="app-frame">
           <p className="eyebrow">Pricing</p>
           <h1>Checking your access status</h1>
-          <p className="lede">Confirming whether your 48-hour window is still active.</p>
+          <p className="lede">Confirming whether your paid access window is still active.</p>
         </section>
       </main>
     );
@@ -97,10 +93,10 @@ export default function PricingPage() {
           <p className="eyebrow">Pricing</p>
           <div className="status-chip status-chip-alert">Expired</div>
         </div>
-        <h1>Your full-access window has ended.</h1>
+        <h1>Your paid access window has ended.</h1>
         <p className="lede">
-          The backend marked your subscription as expired, so dashboard requests now stop
-          here until access is renewed.
+          The backend now blocks dashboard access until Whop confirms a new purchase
+          through the webhook flow.
         </p>
         {state.expiresAt ? (
           <p className="supporting-copy">
@@ -111,42 +107,55 @@ export default function PricingPage() {
         <section className="detail-grid">
           <div className="detail-panel">
             <div className="panel-heading">
-              <h2>What unlock includes</h2>
+              <h2>How unlock works</h2>
             </div>
             <div className="stack-list">
               <article className="stack-item">
-                <strong>48-hour live dashboard access</strong>
-                <p>Backend-enforced access to the protected revenue workspace.</p>
+                <strong>Frontend redirects only</strong>
+                <p>The app sends you to Whop checkout and never decides access on its own.</p>
               </article>
               <article className="stack-item">
-                <strong>Reusable payment contract</strong>
-                <p>The same unlock path can later be driven by a real Whop webhook.</p>
+                <strong>Backend-enforced activation</strong>
+                <p>Access changes only after the backend processes a Whop webhook.</p>
               </article>
             </div>
           </div>
 
           <div className="detail-panel">
             <div className="panel-heading">
-              <h2>Next step</h2>
+              <h2>After payment</h2>
             </div>
             <div className="stack-list">
               <article className="stack-item">
-                <strong>Unlock Full Access — $10 (48 hours)</strong>
-                <p>Dev mode currently grants access through the backend unlock endpoint.</p>
+                <strong>Automatic re-check</strong>
+                <p>This page keeps checking your access while you stay signed in.</p>
               </article>
             </div>
           </div>
         </section>
 
+        <section className="detail-panel">
+          <div className="panel-heading">
+            <h2>Choose your Whop plan</h2>
+          </div>
+          <div className="metrics-grid">
+            {WHOP_PLANS.map((plan) => (
+              <article className="metric-card" key={plan.id}>
+                <span>{plan.name}</span>
+                <strong>{plan.priceLabel}</strong>
+                <em>{plan.termLabel}</em>
+                <p>{plan.description}</p>
+                <div className="button-row">
+                  <a className="primary-link" href={plan.checkoutUrl} rel="noreferrer">
+                    Go to checkout
+                  </a>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
         <div className="button-row">
-          <button
-            className="primary-button"
-            type="button"
-            onClick={handleUnlock}
-            disabled={state.unlocking}
-          >
-            {state.unlocking ? "Renewing..." : "Unlock Full Access — $10 (48 hours)"}
-          </button>
           <Link className="secondary-link" href="/demo">
             View demo
           </Link>

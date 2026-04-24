@@ -1,43 +1,130 @@
-import { env } from "../config/env.js";
-import { readJsonFile, writeJsonFile } from "./file-store.js";
+import { prisma } from "./prisma.js";
 
-const emptyState = { users: [] };
-
-async function readState() {
-  return readJsonFile(env.userStoreFile, emptyState);
+function normalizeEmail(email) {
+  return typeof email === "string" ? email.trim().toLowerCase() : email;
 }
 
-async function writeState(state) {
-  await writeJsonFile(env.userStoreFile, state);
-}
-
-export async function findUserByEmail(email) {
-  const state = await readState();
-  return state.users.find((user) => user.email === email) ?? null;
-}
-
-export async function findUserById(id) {
-  const state = await readState();
-  return state.users.find((user) => user.id === id) ?? null;
-}
-
-export async function createUser(user) {
-  const state = await readState();
-  state.users.push(user);
-  await writeState(state);
-  return user;
-}
-
-export async function updateUser(id, updater) {
-  const state = await readState();
-  const index = state.users.findIndex((user) => user.id === id);
-
-  if (index === -1) {
+function toDate(value) {
+  if (!value) {
     return null;
   }
 
-  const nextUser = updater(state.users[index]);
-  state.users[index] = nextUser;
-  await writeState(state);
-  return nextUser;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function omitUndefined(object) {
+  return Object.fromEntries(Object.entries(object).filter(([, value]) => value !== undefined));
+}
+
+function mapUserRecord(user) {
+  if (!user) {
+    return null;
+  }
+
+  const accessExpiration = toDate(user.accessExpiration);
+
+  return {
+    id: user.id,
+    email: normalizeEmail(user.email),
+    password_hash: user.passwordHash,
+    role: user.role,
+    hasPaid: user.hasPaid,
+    hasAccess: user.hasAccess ?? user.hasPaid,
+    subscriptionTier: user.subscriptionTier ?? null,
+    performanceFeePercentage:
+      typeof user.performanceFeePercentage === "number" ? user.performanceFeePercentage : null,
+    unpaidPerformanceBalance:
+      typeof user.unpaidPerformanceBalance === "number" ? user.unpaidPerformanceBalance : 0,
+    totalRecoveredRevenue:
+      typeof user.totalRecoveredRevenue === "number" ? user.totalRecoveredRevenue : 0,
+    accessExpiration,
+    subscription_expires_at: accessExpiration,
+    stripeRestrictedKey: user.stripeRestrictedKey ?? null,
+    webhookSecret: user.webhookSecret ?? null,
+    stripeConfigured: Boolean(user.stripeRestrictedKey),
+    whopLastEventId: user.whopLastEventId ?? null,
+    whopLastEventType: user.whopLastEventType ?? null,
+    whopLastPlanId: user.whopLastPlanId ?? null,
+    whopLastPaymentId: user.whopLastPaymentId ?? null,
+    whopLastMembershipId: user.whopLastMembershipId ?? null,
+    whopLastProcessedAt: toDate(user.whopLastProcessedAt),
+    createdAt: toDate(user.createdAt)
+  };
+}
+
+function toPrismaUserData(user) {
+  const accessExpiration = toDate(user.accessExpiration ?? user.subscription_expires_at);
+  const createdAt = toDate(user.createdAt);
+  const whopLastProcessedAt = toDate(user.whopLastProcessedAt);
+
+  return omitUndefined({
+    email: normalizeEmail(user.email),
+    passwordHash: user.password_hash ?? user.passwordHash,
+    role: user.role,
+    hasPaid: user.hasPaid ?? user.hasAccess ?? false,
+    hasAccess: user.hasAccess ?? user.hasPaid ?? false,
+    subscriptionTier: user.subscriptionTier ?? null,
+    performanceFeePercentage:
+      typeof user.performanceFeePercentage === "number" ? user.performanceFeePercentage : null,
+    unpaidPerformanceBalance:
+      typeof user.unpaidPerformanceBalance === "number" ? user.unpaidPerformanceBalance : 0,
+    totalRecoveredRevenue:
+      typeof user.totalRecoveredRevenue === "number" ? user.totalRecoveredRevenue : 0,
+    accessExpiration,
+    stripeRestrictedKey: user.stripeRestrictedKey ?? null,
+    webhookSecret: user.webhookSecret ?? null,
+    whopLastEventId: user.whopLastEventId ?? null,
+    whopLastEventType: user.whopLastEventType ?? null,
+    whopLastPlanId: user.whopLastPlanId ?? null,
+    whopLastPaymentId: user.whopLastPaymentId ?? null,
+    whopLastMembershipId: user.whopLastMembershipId ?? null,
+    whopLastProcessedAt,
+    createdAt: createdAt ?? undefined
+  });
+}
+
+export async function findUserByEmail(email) {
+  const user = await prisma.user.findUnique({
+    where: { email: normalizeEmail(email) }
+  });
+
+  return mapUserRecord(user);
+}
+
+export async function findUserById(id) {
+  const user = await prisma.user.findUnique({
+    where: { id }
+  });
+
+  return mapUserRecord(user);
+}
+
+export async function createUser(user) {
+  const createdUser = await prisma.user.create({
+    data: {
+      id: user.id,
+      ...toPrismaUserData(user)
+    }
+  });
+
+  return mapUserRecord(createdUser);
+}
+
+export async function updateUser(id, updater) {
+  const currentUser = await prisma.user.findUnique({
+    where: { id }
+  });
+
+  if (!currentUser) {
+    return null;
+  }
+
+  const nextUser = updater(mapUserRecord(currentUser));
+  const updatedUser = await prisma.user.update({
+    where: { id },
+    data: toPrismaUserData(nextUser)
+  });
+
+  return mapUserRecord(updatedUser);
 }

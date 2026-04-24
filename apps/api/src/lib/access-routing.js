@@ -1,11 +1,11 @@
-import { hasActiveAccess, hasSubscriptionExpired } from "./access-service.js";
+import { hasActiveAccess, hasPaidAccess, hasSubscriptionExpired } from "./access-service.js";
 
 export function resolvePostLoginRoute(user) {
   if (user.role === "admin") {
     return "/admin";
   }
 
-  if (user.hasAccess === false) {
+  if (!hasPaidAccess(user)) {
     return "/demo";
   }
 

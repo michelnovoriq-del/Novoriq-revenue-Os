@@ -1,8 +1,7 @@
 import { Router } from "express";
+import { env } from "../config/env.js";
 import { authenticate } from "../middleware/authenticate.js";
 import { authorizeRole } from "../middleware/authorize-role.js";
-import { grantTimedAccess } from "../lib/access-service.js";
-import { resolvePostLoginRoute } from "../lib/access-routing.js";
 import {
   requireDashboardAccess,
   requireDemoAccess
@@ -22,10 +21,35 @@ router.get("/demo", authenticate, authorizeRole("user"), requireDemoAccess, (req
     area: "demo",
     user: req.user,
     unlockOffer: {
-      price: 10,
-      durationHours: 48,
-      cta: "Unlock Full Access — $10 (48 hours)"
+      provider: "Whop",
+      cta: "Choose a Whop plan to unlock live access"
     },
+    plans: [
+      {
+        id: "plan_g5k8i3tfPkASV",
+        label: "Emergency",
+        price: 10,
+        durationHours: 48
+      },
+      {
+        id: "plan_pJpWvIqcYCRvV",
+        label: "Tier 1",
+        price: 199,
+        durationDays: 30
+      },
+      {
+        id: "plan_rE4Rj9g9t8RNH",
+        label: "Tier 2",
+        price: 399,
+        durationDays: 30
+      },
+      {
+        id: "plan_My5qZYNCRlcgr",
+        label: "Tier 3",
+        price: 799,
+        durationDays: 30
+      }
+    ],
     metrics: [
       {
         label: "Projected MRR",
@@ -78,33 +102,11 @@ router.get("/demo", authenticate, authorizeRole("user"), requireDemoAccess, (req
 router.get("/dashboard", authenticate, authorizeRole("user"), requireDashboardAccess, (req, res) => {
   return res.status(200).json({
     area: "dashboard",
-    user: req.user
-  });
-});
-
-router.post("/api/dev/unlock", authenticate, authorizeRole("user"), async (req, res, next) => {
-  try {
-    const user = await grantTimedAccess(req.user.id);
-
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
+    user: req.user,
+    evidence: {
+      fingerprintApiKey: env.FINGERPRINT_API_KEY ?? null
     }
-
-    return res.status(200).json({
-      success: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        hasAccess: user.hasAccess,
-        subscription_expires_at: user.subscription_expires_at,
-        createdAt: user.createdAt
-      },
-      redirectTo: resolvePostLoginRoute(user)
-    });
-  } catch (error) {
-    return next(error);
-  }
+  });
 });
 
 export default router;

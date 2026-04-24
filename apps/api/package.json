@@ -5,12 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/server.js",
-    "build": "echo \"No build step configured for apps/api yet.\"",
+    "build": "prisma generate && echo \"No build step configured for apps/api yet.\"",
     "lint": "echo \"Lint step pending for apps/api.\"",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:push": "prisma db push",
     "test": "echo \"Test step pending for apps/api.\"",
     "typecheck": "echo \"Typecheck step pending for apps/api.\""
   },
   "dependencies": {
+    "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -18,6 +22,8 @@
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
     "jsonwebtoken": "^9.0.2",
+    "prisma": "^6.19.3",
+    "stripe": "^22.1.0",
     "zod": "^3.24.4"
   }
 }

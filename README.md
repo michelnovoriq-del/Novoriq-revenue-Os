@@ -36,3 +36,19 @@ Production-oriented monorepo foundation for a multi-tenant Stripe revenue OS.
 
 - `GET /admin`
 - `GET /dashboard`
+- `GET /demo`
+- `POST /api/settings/keys`
+- `POST /api/whop/webhook`
+- `POST /api/stripe/webhook/:userId`
+
+## Whop integration
+
+- Frontend checkout buttons redirect directly to Whop checkout pages.
+- Backend access is activated only from `POST /api/whop/webhook`.
+- Set `WHOP_WEBHOOK_SECRET` to enable signature verification for webhook deliveries.
+
+## Stripe engine
+
+- `POST /api/settings/keys` stores an encrypted Stripe restricted key for the signed-in user and returns a user-scoped webhook URL.
+- `POST /api/stripe/webhook/:userId` stores raw Stripe events, deduplicates by `event.id`, persists evidence from successful charges, and prepares dispute evidence from stored charge metadata.
+- Prisma now owns user/session/event persistence through PostgreSQL instead of the previous file-backed repositories.
