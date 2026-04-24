@@ -3,9 +3,10 @@ import {
   hasPaidAccess,
   hasSubscriptionExpired
 } from "../lib/access-service.js";
+import { sendError } from "../utils/http.js";
 
 function rejectWithRedirect(res, error, redirectTo) {
-  return res.status(403).json({ error, redirectTo });
+  return sendError(res, 403, error, { redirectTo });
 }
 
 export function requireDemoAccess(req, res, next) {

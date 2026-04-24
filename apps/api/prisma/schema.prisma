@@ -33,7 +33,9 @@ model User {
   recoveryLogs             RecoveryLog[]
   sessions                 Session[]
   stripeEvents             StripeEvent[]
+  whopEvents               WhopEvent[]
 
+  @@index([role])
   @@map("users")
 }
 
@@ -73,6 +75,7 @@ model Evidence {
 
   @@index([userId])
   @@index([sessionId])
+  @@index([chargeId])
   @@map("evidences")
 }
 
@@ -88,6 +91,7 @@ model RecoveryLog {
   createdAt       DateTime @default(now())
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([disputeId])
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([chargeId])
@@ -124,6 +128,27 @@ model StripeEvent {
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([eventId])
   @@index([processingStatus, createdAt])
   @@map("stripe_events")
+}
+
+model WhopEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String?  @db.Uuid
+  eventId        String   @unique
+  eventType      String
+  status         String
+  email          String?
+  planId         String?
+  reason         String?
+  payload        Json?
+  processedAt    DateTime?
+  createdAt      DateTime @default(now())
+  user           User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([eventId])
+  @@index([status, createdAt])
+  @@map("whop_events")
 }

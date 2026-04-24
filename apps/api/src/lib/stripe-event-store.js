@@ -59,8 +59,13 @@ export async function createStripeEvent({ userId, eventId, eventType, payload })
 }
 
 export async function markStripeEventProcessingStarted(id) {
-  const event = await prisma.stripeEvent.update({
-    where: { id },
+  await prisma.stripeEvent.updateMany({
+    where: {
+      id,
+      processingStatus: {
+        in: ["pending", "failed"]
+      }
+    },
     data: {
       processingStatus: "processing",
       processingAttempts: {
@@ -68,6 +73,10 @@ export async function markStripeEventProcessingStarted(id) {
       },
       processingError: null
     }
+  });
+
+  const event = await prisma.stripeEvent.findUnique({
+    where: { id }
   });
 
   return mapStripeEvent(event);

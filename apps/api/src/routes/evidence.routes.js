@@ -8,7 +8,8 @@ import {
   captureEvidenceSession,
   extractClientIp,
   logEvidenceActivity
-} from "../lib/evidence-service.js";
+} from "../services/evidence-service.js";
+import { asyncHandler, sendSuccess } from "../utils/http.js";
 
 const router = Router();
 
@@ -18,6 +19,7 @@ const evidenceLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: {
+    success: false,
     error: "Too many evidence requests. Please try again later."
   }
 });
@@ -39,23 +41,19 @@ router.post(
   authenticate,
   authorizeRole("user"),
   requireDashboardAccess,
-  async (req, res, next) => {
-    try {
-      const { fingerprintId, userAgent } = evidenceSessionSchema.parse(req.body);
-      const session = await captureEvidenceSession({
-        userId: req.user.id,
-        fingerprintId,
-        userAgent,
-        ipAddress: extractClientIp(req)
-      });
+  asyncHandler(async (req, res) => {
+    const { fingerprintId, userAgent } = evidenceSessionSchema.parse(req.body);
+    const session = await captureEvidenceSession({
+      userId: req.user.id,
+      fingerprintId,
+      userAgent,
+      ipAddress: extractClientIp(req)
+    });
 
-      return res.status(201).json({
-        sessionId: session.id
-      });
-    } catch (error) {
-      return next(error);
-    }
-  }
+    return sendSuccess(res, 201, {
+      sessionId: session.id
+    });
+  })
 );
 
 router.post(
@@ -64,23 +62,19 @@ router.post(
   authenticate,
   authorizeRole("user"),
   requireDashboardAccess,
-  async (req, res, next) => {
-    try {
-      const { sessionId, action, metadata } = evidenceActivitySchema.parse(req.body);
-      const activityLog = await logEvidenceActivity({
-        userId: req.user.id,
-        sessionId,
-        action,
-        metadata
-      });
+  asyncHandler(async (req, res) => {
+    const { sessionId, action, metadata } = evidenceActivitySchema.parse(req.body);
+    const activityLog = await logEvidenceActivity({
+      userId: req.user.id,
+      sessionId,
+      action,
+      metadata
+    });
 
-      return res.status(201).json({
-        activityLogId: activityLog.id
-      });
-    } catch (error) {
-      return next(error);
-    }
-  }
+    return sendSuccess(res, 201, {
+      activityLogId: activityLog.id
+    });
+  })
 );
 
 export default router;

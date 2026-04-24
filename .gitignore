@@ -7,5 +7,7 @@ coverage/
 .env
 .env.local
 *.log
+logs/
+apps/api/logs/
+apps/api/data/
 *.tsbuildinfo
-apps/api/data/*.json

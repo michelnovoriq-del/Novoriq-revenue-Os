@@ -1,4 +1,5 @@
 import { env } from "../config/env.js";
+import { logger } from "../utils/logger.js";
 
 const RESEND_API_URL = "https://api.resend.com/emails";
 const ALERT_FROM_EMAIL = "alerts@novoriq.local";
@@ -24,7 +25,7 @@ async function sendNotification({ to, subject, text }) {
       })
     });
   } catch (error) {
-    console.error("[NOTIFIER] Failed to send email notification.", {
+    logger.error("Failed to send email notification.", {
       message: error.message
     });
   }

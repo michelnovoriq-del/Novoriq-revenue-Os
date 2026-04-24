@@ -10,6 +10,9 @@ import stripeRoutes from "./routes/stripe.routes.js";
 import whopRoutes from "./routes/whop.routes.js";
 import { env } from "./config/env.js";
 import { errorHandler } from "./middleware/error-handler.js";
+import { requestLogger } from "./middleware/request-logger.js";
+import { requireHttps } from "./middleware/require-https.js";
+import { sanitizeBody } from "./middleware/sanitize-body.js";
 
 export function createApp() {
   const app = express();
@@ -22,13 +25,20 @@ export function createApp() {
       credentials: true
     })
   );
+  app.use(requestLogger);
+  app.use(requireHttps);
   app.use(cookieParser());
   app.use(whopRoutes);
   app.use(stripeRoutes);
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: "1mb", strict: true }));
+  app.use(sanitizeBody);
 
   app.get("/health", (req, res) => {
-    res.status(200).json({ ok: true });
+    return res.status(200).json({ status: "ok" });
+  });
+
+  app.get("/api/health", (req, res) => {
+    return res.status(200).json({ status: "ok" });
   });
 
   app.use("/auth", authRoutes);

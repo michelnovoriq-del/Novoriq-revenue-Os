@@ -3,9 +3,11 @@ import { env } from "../config/env.js";
 import { getAccessExpiration, hasActiveAccess } from "./access-service.js";
 import { findUserByEmail, updateUser } from "./user-store.js";
 import {
+  createWhopEvent,
   findProcessedWhopEvent,
   recordProcessedWhopEvent
 } from "./whop-event-store.js";
+import { logger } from "../utils/logger.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -64,7 +66,6 @@ function extractEmail(body) {
 
 function extractPlanId(body) {
   const planId = body?.data?.plan_id ?? body?.data?.plan?.id ?? null;
-
   return typeof planId === "string" ? planId : null;
 }
 
@@ -99,9 +100,7 @@ function decodeWebhookSecret(webhookSecret) {
 function verifyWhopWebhookSignature({ headers, rawBody }) {
   if (!env.WHOP_WEBHOOK_SECRET) {
     if (!hasWarnedAboutMissingSecret) {
-      console.warn(
-        "[WHOP WEBHOOK] WHOP_WEBHOOK_SECRET is not configured. Signature verification is disabled."
-      );
+      logger.warn("WHOP_WEBHOOK_SECRET is not configured. Signature verification is disabled.");
       hasWarnedAboutMissingSecret = true;
     }
 
@@ -113,20 +112,20 @@ function verifyWhopWebhookSignature({ headers, rawBody }) {
   const webhookSignature = getHeaderValue(headers, "webhook-signature");
 
   if (!webhookId || !webhookTimestamp || !webhookSignature) {
-    console.warn("[WHOP WEBHOOK] Missing signature headers.");
+    logger.warn("Whop webhook missing signature headers.");
     return false;
   }
 
   const timestampSeconds = Number.parseInt(webhookTimestamp, 10);
 
   if (!Number.isFinite(timestampSeconds)) {
-    console.warn("[WHOP WEBHOOK] Invalid webhook timestamp.");
+    logger.warn("Whop webhook timestamp is invalid.");
     return false;
   }
 
   const nowSeconds = Math.floor(Date.now() / 1000);
   if (Math.abs(nowSeconds - timestampSeconds) > env.WHOP_WEBHOOK_TOLERANCE_SECONDS) {
-    console.warn("[WHOP WEBHOOK] Webhook timestamp is outside the accepted tolerance window.");
+    logger.warn("Whop webhook timestamp is outside tolerance.");
     return false;
   }
 
@@ -175,8 +174,8 @@ async function applyWhopAccess({
   planId,
   user
 }) {
-  const processedAt = Date.now();
-  const accessExpiration = new Date(processedAt + planConfig.durationMs);
+  const processedAt = new Date();
+  const accessExpiration = new Date(processedAt.getTime() + planConfig.durationMs);
 
   if (shouldSkipActivation(user, planConfig, accessExpiration)) {
     await recordProcessedWhopEvent({
@@ -186,12 +185,19 @@ async function applyWhopAccess({
       processedAt,
       email,
       planId,
-      userId: user.id
+      userId: user.id,
+      payload: {
+        type: body?.type ?? null
+      }
     });
 
-    console.log(
-      `[WHOP WEBHOOK] Skipping duplicate activation for ${email} on ${planConfig.subscriptionTier}.`
-    );
+    logger.info("Whop webhook skipped duplicate activation", {
+      eventId,
+      eventType,
+      email,
+      planId,
+      userId: user.id
+    });
     return;
   }
 
@@ -208,7 +214,7 @@ async function applyWhopAccess({
     whopLastPlanId: planId,
     whopLastPaymentId: extractPaymentId(body) ?? currentUser.whopLastPaymentId,
     whopLastMembershipId: extractMembershipId(body) ?? currentUser.whopLastMembershipId,
-    whopLastProcessedAt: new Date(processedAt)
+    whopLastProcessedAt: processedAt
   }));
 
   if (!updatedUser) {
@@ -221,7 +227,11 @@ async function applyWhopAccess({
       planId
     });
 
-    console.warn(`[WHOP WEBHOOK] User disappeared before activation for ${email}.`);
+    logger.warn("Whop webhook user disappeared before activation.", {
+      eventId,
+      email,
+      planId
+    });
     return;
   }
 
@@ -232,45 +242,61 @@ async function applyWhopAccess({
     processedAt,
     email,
     planId,
-    userId: updatedUser.id,
-    subscriptionTier: updatedUser.subscriptionTier,
-    accessExpiration
+    userId: updatedUser.id
   });
 
-  console.log(
-    `[WHOP WEBHOOK] Activated ${updatedUser.subscriptionTier} for ${updatedUser.email} until ${new Date(
-      accessExpiration
-    ).toISOString()}.`
-  );
+  logger.info("Whop access activated", {
+    eventId,
+    eventType,
+    email: updatedUser.email,
+    userId: updatedUser.id,
+    subscriptionTier: updatedUser.subscriptionTier,
+    accessExpiration: accessExpiration.toISOString()
+  });
 }
 
 async function processWhopWebhook({ body, headers, rawBody }) {
   const eventType = typeof body?.type === "string" ? body.type : "unknown";
   const eventId = getWebhookEventId(body, headers);
 
-  try {
-    if (!body || typeof body !== "object") {
-      console.warn("[WHOP WEBHOOK] Received an invalid JSON payload.");
-      return;
-    }
+  if (!body || typeof body !== "object") {
+    logger.warn("Whop webhook received an invalid payload.");
+    return;
+  }
 
-    if (!eventId) {
-      console.warn("[WHOP WEBHOOK] Missing webhook event id.");
-      return;
-    }
+  if (!eventId) {
+    logger.warn("Whop webhook missing event id.", { eventType });
+    return;
+  }
 
+  const createdEvent = await createWhopEvent({
+    eventId,
+    type: eventType,
+    status: "processing",
+    processedAt: new Date(),
+    payload: {
+      type: eventType
+    }
+  });
+
+  if (!createdEvent) {
     const existingEvent = await findProcessedWhopEvent(eventId);
-    if (existingEvent) {
-      console.log(`[WHOP WEBHOOK] Ignoring already processed event ${eventId}.`);
-      return;
-    }
 
+    logger.info("Whop webhook ignored duplicate event", {
+      eventId,
+      eventType,
+      status: existingEvent?.status ?? "unknown"
+    });
+    return;
+  }
+
+  try {
     if (!verifyWhopWebhookSignature({ headers, rawBody })) {
       await recordProcessedWhopEvent({
         eventId,
         type: eventType,
         status: "rejected_signature",
-        processedAt: Date.now()
+        processedAt: new Date()
       });
       return;
     }
@@ -280,7 +306,7 @@ async function processWhopWebhook({ body, headers, rawBody }) {
         eventId,
         type: eventType,
         status: "ignored",
-        processedAt: Date.now()
+        processedAt: new Date()
       });
       return;
     }
@@ -293,14 +319,17 @@ async function processWhopWebhook({ body, headers, rawBody }) {
         eventId,
         type: eventType,
         status: "ignored_missing_data",
-        processedAt: Date.now(),
+        processedAt: new Date(),
         email,
         planId
       });
 
-      console.warn(
-        `[WHOP WEBHOOK] Missing email or plan id for ${eventType}. Email: ${email}, Plan: ${planId}`
-      );
+      logger.warn("Whop webhook missing email or plan id.", {
+        eventId,
+        eventType,
+        email,
+        planId
+      });
       return;
     }
 
@@ -310,12 +339,17 @@ async function processWhopWebhook({ body, headers, rawBody }) {
         eventId,
         type: eventType,
         status: "ignored_unknown_plan",
-        processedAt: Date.now(),
+        processedAt: new Date(),
         email,
         planId
       });
 
-      console.warn(`[WHOP WEBHOOK] Ignoring unknown Whop plan ${planId}.`);
+      logger.warn("Whop webhook ignored unknown plan.", {
+        eventId,
+        eventType,
+        email,
+        planId
+      });
       return;
     }
 
@@ -325,12 +359,17 @@ async function processWhopWebhook({ body, headers, rawBody }) {
         eventId,
         type: eventType,
         status: "missing_user",
-        processedAt: Date.now(),
+        processedAt: new Date(),
         email,
         planId
       });
 
-      console.warn(`[WHOP WEBHOOK] No matching user found for ${email}.`);
+      logger.warn("Whop webhook did not find a matching user.", {
+        eventId,
+        eventType,
+        email,
+        planId
+      });
       return;
     }
 
@@ -344,15 +383,19 @@ async function processWhopWebhook({ body, headers, rawBody }) {
       user
     });
   } catch (error) {
-    if (eventId) {
-      await recordProcessedWhopEvent({
-        eventId,
-        type: eventType,
-        status: "failed",
-        processedAt: Date.now(),
-        reason: error.message
-      });
-    }
+    await recordProcessedWhopEvent({
+      eventId,
+      type: eventType,
+      status: "failed",
+      processedAt: new Date(),
+      reason: error.message
+    });
+
+    logger.error("Whop webhook processing failed", {
+      eventId,
+      eventType,
+      message: error.message
+    });
 
     throw error;
   }
@@ -362,6 +405,8 @@ export function queueWhopWebhookProcessing(payload) {
   processingQueue = processingQueue
     .then(() => processWhopWebhook(payload))
     .catch((error) => {
-      console.error("[WHOP WEBHOOK] Failed to process webhook.", error);
+      logger.error("Whop webhook queue failed", {
+        message: error.message
+      });
     });
 }

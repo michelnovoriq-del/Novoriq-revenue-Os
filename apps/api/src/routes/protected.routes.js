@@ -6,18 +6,19 @@ import {
   requireDashboardAccess,
   requireDemoAccess
 } from "../middleware/access-gate.js";
+import { sendSuccess } from "../utils/http.js";
 
 const router = Router();
 
 router.get("/admin", authenticate, authorizeRole("admin"), (req, res) => {
-  return res.status(200).json({
+  return sendSuccess(res, 200, {
     area: "admin",
     user: req.user
   });
 });
 
 router.get("/demo", authenticate, authorizeRole("user"), requireDemoAccess, (req, res) => {
-  return res.status(200).json({
+  return sendSuccess(res, 200, {
     area: "demo",
     user: req.user,
     unlockOffer: {
@@ -100,7 +101,7 @@ router.get("/demo", authenticate, authorizeRole("user"), requireDemoAccess, (req
 });
 
 router.get("/dashboard", authenticate, authorizeRole("user"), requireDashboardAccess, (req, res) => {
-  return res.status(200).json({
+  return sendSuccess(res, 200, {
     area: "dashboard",
     user: req.user,
     evidence: {

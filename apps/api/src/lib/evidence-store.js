@@ -244,15 +244,31 @@ export async function createRecoveryLog({
   recoveredAmount,
   platformFee
 }) {
-  const recoveryLog = await prisma.recoveryLog.create({
-    data: {
-      userId,
-      chargeId,
-      disputeId,
-      recoveredAmount,
-      platformFee,
-      status: "pending"
-    }
+  const recoveryLog = await prisma.$transaction(async (tx) => {
+    const createdRecoveryLog = await tx.recoveryLog.create({
+      data: {
+        userId,
+        chargeId,
+        disputeId,
+        recoveredAmount,
+        platformFee,
+        status: "pending"
+      }
+    });
+
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        unpaidPerformanceBalance: {
+          increment: platformFee
+        },
+        totalRecoveredRevenue: {
+          increment: recoveredAmount
+        }
+      }
+    });
+
+    return createdRecoveryLog;
   });
 
   return mapRecoveryLogRecord(recoveryLog);
@@ -267,50 +283,64 @@ export async function hasRecoveryLogForDispute(disputeId) {
 }
 
 export async function markPendingRecoveryLogsBilledForUser(userId) {
-  const billedAt = new Date();
+  return prisma.$transaction(async (tx) => {
+    const billedAt = new Date();
+    const pendingLogs = await tx.recoveryLog.findMany({
+      where: {
+        userId,
+        status: "pending"
+      }
+    });
 
-  const pendingLogs = await prisma.recoveryLog.findMany({
-    where: {
-      userId,
-      status: "pending"
+    if (pendingLogs.length === 0) {
+      return [];
     }
+
+    const pendingLogIds = pendingLogs.map((recoveryLog) => recoveryLog.id);
+
+    await tx.recoveryLog.updateMany({
+      where: {
+        id: {
+          in: pendingLogIds
+        },
+        status: "pending"
+      },
+      data: {
+        status: "billed",
+        billedAt
+      }
+    });
+
+    return pendingLogs.map((recoveryLog) =>
+      mapRecoveryLogRecord({
+        ...recoveryLog,
+        status: "billed",
+        billedAt
+      })
+    );
   });
-
-  if (pendingLogs.length === 0) {
-    return [];
-  }
-
-  await prisma.recoveryLog.updateMany({
-    where: {
-      userId,
-      status: "pending"
-    },
-    data: {
-      status: "billed",
-      billedAt
-    }
-  });
-
-  return pendingLogs.map((recoveryLog) =>
-    mapRecoveryLogRecord({
-      ...recoveryLog,
-      status: "billed",
-      billedAt
-    })
-  );
 }
 
 export async function markRecoveryLogsPaidForUser(userId) {
-  await prisma.recoveryLog.updateMany({
-    where: {
-      userId,
-      status: {
-        in: ["pending", "billed"]
+  return prisma.$transaction(async (tx) => {
+    await tx.recoveryLog.updateMany({
+      where: {
+        userId,
+        status: "billed"
+      },
+      data: {
+        status: "paid"
       }
-    },
-    data: {
-      status: "paid"
-    }
+    });
+
+    const updatedUser = await tx.user.update({
+      where: { id: userId },
+      data: {
+        unpaidPerformanceBalance: 0
+      }
+    });
+
+    return updatedUser;
   });
 }
 
@@ -372,7 +402,10 @@ export async function getAdminOverviewMetrics() {
       prisma.user.count({
         where: {
           role: "user",
-          hasAccess: true
+          hasAccess: true,
+          accessExpiration: {
+            gt: new Date()
+          }
         }
       }),
       prisma.user.aggregate({

@@ -7,13 +7,9 @@ import {
 } from "./evidence-store.js";
 import { notifyBillingRun, notifyPaymentConfirmation } from "./dispute-notifier.js";
 import { prisma } from "./prisma.js";
-import { findUserById, updateUser } from "./user-store.js";
-
-function createHttpError(statusCode, message) {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-}
+import { findUserById } from "./user-store.js";
+import { createHttpError } from "../utils/http.js";
+import { logger } from "../utils/logger.js";
 
 export async function runBillingCycle() {
   const users = await prisma.user.findMany({
@@ -39,16 +35,27 @@ export async function runBillingCycle() {
       continue;
     }
 
+    const amountDue = billedRecoveryLogs.reduce(
+      (total, recoveryLog) => total + (recoveryLog.platformFee ?? 0),
+      0
+    );
+
     await notifyBillingRun({
       userEmail: user.email,
-      amountDue: user.unpaidPerformanceBalance ?? 0,
+      amountDue,
       recoveryCount: billedRecoveryLogs.length
+    });
+
+    logger.info("Billing cycle processed user", {
+      userId: user.id,
+      recoveryCount: billedRecoveryLogs.length,
+      amountDue
     });
 
     billedUsers.push({
       userId: user.id,
       email: user.email,
-      amountDue: user.unpaidPerformanceBalance ?? 0,
+      amountDue,
       billedRecoveryCount: billedRecoveryLogs.length
     });
   }
@@ -66,14 +73,14 @@ export async function markUserBalancePaid(userId) {
     throw createHttpError(404, "User not found");
   }
 
-  await markRecoveryLogsPaidForUser(user.id);
-  const updatedUser = await updateUser(user.id, (currentUser) => ({
-    ...currentUser,
-    unpaidPerformanceBalance: 0
-  }));
+  const updatedUser = await markRecoveryLogsPaidForUser(user.id);
 
   await notifyPaymentConfirmation({
     userEmail: updatedUser?.email ?? user.email
+  });
+
+  logger.info("Marked user balance paid", {
+    userId: user.id
   });
 
   return updatedUser;

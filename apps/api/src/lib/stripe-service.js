@@ -24,17 +24,16 @@ import {
 import {
   clearSensitiveBuffer,
   decryptToBuffer,
+  decrypt,
   encrypt
 } from "./secret-encryption.js";
 import { findUserById, updateUser } from "./user-store.js";
+import { createHttpError } from "../utils/http.js";
+import { logger } from "../utils/logger.js";
 
-const stripeWebhookVerifier = new Stripe("sk_test_webhook_verifier");
-
-function createHttpError(statusCode, message) {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-}
+const stripeWebhookVerifier = new Stripe("sk_test_webhook_verifier", {
+  apiVersion: "2025-03-31.basil"
+});
 
 function normalizeRestrictedKey(restrictedKey) {
   return typeof restrictedKey === "string" ? restrictedKey.trim() : "";
@@ -45,7 +44,9 @@ function normalizeWebhookSecret(webhookSecret) {
 }
 
 function getStripeClient(apiKey) {
-  return new Stripe(apiKey);
+  return new Stripe(apiKey, {
+    apiVersion: "2025-03-31.basil"
+  });
 }
 
 function getChargeFromEvent(event) {
@@ -62,7 +63,16 @@ function getChargeTimestamp(charge) {
 }
 
 function resolveStripeWebhookSecret(user) {
-  const userScopedSecret = normalizeWebhookSecret(user?.webhookSecret);
+  let userScopedSecret = "";
+
+  if (user?.webhookSecret) {
+    try {
+      userScopedSecret = normalizeWebhookSecret(decrypt(user.webhookSecret));
+    } catch {
+      userScopedSecret = normalizeWebhookSecret(user.webhookSecret);
+    }
+  }
+
   const environmentSecret = normalizeWebhookSecret(env.STRIPE_WEBHOOK_SECRET);
   const webhookSecret = userScopedSecret || environmentSecret;
 
@@ -203,10 +213,11 @@ export async function storeRestrictedStripeKey({ userId, restrictedKey, webhookS
   const validatedKey = await validateRestrictedStripeKey(restrictedKey);
   const normalizedWebhookSecret = normalizeWebhookSecret(webhookSecret);
   const encryptedKey = encrypt(validatedKey);
+  const encryptedWebhookSecret = normalizedWebhookSecret ? encrypt(normalizedWebhookSecret) : undefined;
   const user = await updateUser(userId, (currentUser) => ({
     ...currentUser,
     stripeRestrictedKey: encryptedKey,
-    webhookSecret: normalizedWebhookSecret || currentUser.webhookSecret
+    webhookSecret: encryptedWebhookSecret ?? currentUser.webhookSecret
   }));
 
   if (!user) {
@@ -366,12 +377,6 @@ async function handleChargeDisputeClosed({ user, event }) {
     platformFee
   });
 
-  await updateUser(user.id, (currentUser) => ({
-    ...currentUser,
-    unpaidPerformanceBalance: (currentUser.unpaidPerformanceBalance ?? 0) + platformFee,
-    totalRecoveredRevenue: (currentUser.totalRecoveredRevenue ?? 0) + recoveredAmount
-  }));
-
   await notifyDisputeWon({
     userId: user.id,
     userEmail: user.email,
@@ -468,7 +473,15 @@ export async function processStoredStripeEvent({ stripeEventId, userId, event })
   }
 
   if (stripeEventId) {
-    await markStripeEventProcessingStarted(stripeEventId);
+    const storedEvent = await markStripeEventProcessingStarted(stripeEventId);
+
+    if (storedEvent?.processingStatus !== "processing") {
+      logger.info("Stripe event skipped because it is no longer processable", {
+        stripeEventId,
+        eventType
+      });
+      return;
+    }
   }
 
   try {
@@ -493,6 +506,13 @@ export async function processStoredStripeEvent({ stripeEventId, userId, event })
     if (stripeEventId) {
       await markStripeEventFailed(stripeEventId, error.message);
     }
+
+    logger.error("Stripe event processing failed", {
+      stripeEventId,
+      userId,
+      eventType,
+      message: error.message
+    });
 
     throw error;
   }

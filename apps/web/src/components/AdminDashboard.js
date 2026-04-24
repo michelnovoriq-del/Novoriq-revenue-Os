@@ -328,13 +328,13 @@ export function AdminDashboard() {
 
                     return (
                       <tr key={user.id}>
-                        <td>{user.email}</td>
-                        <td>{user.subscriptionTier || "Unassigned"}</td>
-                        <td>{formatCurrency(user.unpaidPerformanceBalance)}</td>
-                        <td>{formatCurrency(user.totalRecoveredRevenue)}</td>
-                        <td>{user.stripeConnected ? "Connected" : "Missing"}</td>
-                        <td>{formatDate(user.createdAt)}</td>
-                        <td>
+                        <td data-label="Email">{user.email}</td>
+                        <td data-label="Tier">{user.subscriptionTier || "Unassigned"}</td>
+                        <td data-label="Balance">{formatCurrency(user.unpaidPerformanceBalance)}</td>
+                        <td data-label="Recovered">{formatCurrency(user.totalRecoveredRevenue)}</td>
+                        <td data-label="Stripe">{user.stripeConnected ? "Connected" : "Missing"}</td>
+                        <td data-label="Created">{formatDate(user.createdAt)}</td>
+                        <td data-label="Action">
                           <button
                             className="secondary-link admin-action-button"
                             onClick={() => handleMarkPaid(user.id)}

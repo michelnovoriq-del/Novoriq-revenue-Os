@@ -1,5 +1,7 @@
 import express, { Router } from "express";
-import { queueWhopWebhookProcessing } from "../lib/whop-service.js";
+import { queueWhopWebhookProcessing } from "../services/whop-service.js";
+import { sendSuccess } from "../utils/http.js";
+import { logger } from "../utils/logger.js";
 
 const router = Router();
 
@@ -8,20 +10,24 @@ router.post(
   express.raw({ type: "application/json", limit: "1mb" }),
   (req, res) => {
     const rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : "";
+    let parsedBody = null;
 
     try {
-      req.body = rawBody ? JSON.parse(rawBody) : null;
+      parsedBody = rawBody ? JSON.parse(rawBody) : null;
     } catch {
-      req.body = null;
+      parsedBody = null;
     }
 
-    console.log(req.body);
-
-    res.status(200).json({ received: true });
+    sendSuccess(res, 200, { received: true });
 
     setImmediate(() => {
+      logger.info("Whop webhook acknowledged", {
+        eventId: req.get("webhook-id"),
+        eventType: parsedBody?.type ?? "unknown"
+      });
+
       queueWhopWebhookProcessing({
-        body: req.body,
+        body: parsedBody,
         headers: req.headers,
         rawBody
       });

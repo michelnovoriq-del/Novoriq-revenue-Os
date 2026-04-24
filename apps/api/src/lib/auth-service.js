@@ -35,8 +35,8 @@ async function issueTokensForUser(user) {
     id: sessionId,
     userId: user.id,
     tokenHash: hashToken(refreshToken),
-    expiresAt: Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
-    createdAt: Date.now()
+    expiresAt: new Date(Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000),
+    createdAt: new Date()
   });
 
   return { accessToken, refreshToken };
@@ -66,7 +66,7 @@ export async function registerUser({ email, password }) {
     accessExpiration: null,
     subscription_expires_at: null,
     stripeRestrictedKey: null,
-    createdAt: Date.now()
+    createdAt: new Date()
   });
 
   const tokens = await issueTokensForUser(user);

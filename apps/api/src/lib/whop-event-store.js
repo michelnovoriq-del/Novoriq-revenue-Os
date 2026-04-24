@@ -1,43 +1,92 @@
-import { env } from "../config/env.js";
-import { readJsonFile, writeJsonFile } from "./file-store.js";
+import { Prisma } from "@prisma/client";
+import { prisma } from "./prisma.js";
 
-const emptyState = { processedEvents: [] };
-const MAX_STORED_EVENTS = 5000;
+function toDate(value) {
+  if (!value) {
+    return null;
+  }
 
-async function readState() {
-  return readJsonFile(env.whopEventStoreFile, emptyState);
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
-async function writeState(state) {
-  await writeJsonFile(env.whopEventStoreFile, state);
+function mapWhopEvent(record) {
+  if (!record) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    userId: record.userId ?? null,
+    eventId: record.eventId,
+    eventType: record.eventType,
+    status: record.status,
+    email: record.email ?? null,
+    planId: record.planId ?? null,
+    reason: record.reason ?? null,
+    payload: record.payload ?? null,
+    processedAt: toDate(record.processedAt),
+    createdAt: toDate(record.createdAt)
+  };
 }
 
 export async function findProcessedWhopEvent(eventId) {
-  const state = await readState();
+  const event = await prisma.whopEvent.findUnique({
+    where: { eventId }
+  });
 
-  return state.processedEvents.find((event) => event.eventId === eventId) ?? null;
+  return mapWhopEvent(event);
+}
+
+export async function createWhopEvent(event) {
+  try {
+    const createdEvent = await prisma.whopEvent.create({
+      data: {
+        userId: event.userId ?? null,
+        eventId: event.eventId,
+        eventType: event.type,
+        status: event.status,
+        email: event.email ?? null,
+        planId: event.planId ?? null,
+        reason: event.reason ?? null,
+        payload: event.payload ?? Prisma.JsonNull,
+        processedAt: toDate(event.processedAt) ?? new Date()
+      }
+    });
+
+    return mapWhopEvent(createdEvent);
+  } catch (error) {
+    if (error?.code === "P2002") {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+export async function updateWhopEventStatus(eventId, event) {
+  const updatedEvent = await prisma.whopEvent.update({
+    where: { eventId },
+    data: {
+      userId: event.userId ?? undefined,
+      status: event.status,
+      email: event.email ?? undefined,
+      planId: event.planId ?? undefined,
+      reason: event.reason ?? undefined,
+      payload: event.payload ?? undefined,
+      processedAt: toDate(event.processedAt) ?? new Date()
+    }
+  });
+
+  return mapWhopEvent(updatedEvent);
 }
 
 export async function recordProcessedWhopEvent(event) {
-  const state = await readState();
-  const existingIndex = state.processedEvents.findIndex(
-    (entry) => entry.eventId === event.eventId
-  );
+  const createdEvent = await createWhopEvent(event);
 
-  if (existingIndex === -1) {
-    state.processedEvents.push(event);
-  } else {
-    state.processedEvents[existingIndex] = {
-      ...state.processedEvents[existingIndex],
-      ...event
-    };
+  if (createdEvent) {
+    return createdEvent;
   }
 
-  if (state.processedEvents.length > MAX_STORED_EVENTS) {
-    state.processedEvents = state.processedEvents.slice(-MAX_STORED_EVENTS);
-  }
-
-  await writeState(state);
-
-  return event;
+  return updateWhopEventStatus(event.eventId, event);
 }

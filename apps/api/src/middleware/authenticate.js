@@ -1,12 +1,13 @@
 import { ACCESS_COOKIE_NAME } from "../constants/auth.js";
 import { verifyAccessToken } from "../lib/jwt.js";
 import { findUserById } from "../lib/user-store.js";
+import { sendError } from "../utils/http.js";
 
 export async function authenticate(req, res, next) {
   const token = req.cookies[ACCESS_COOKIE_NAME];
 
   if (!token) {
-    return res.status(401).json({ error: "Authentication required" });
+    return sendError(res, 401, "Authentication required");
   }
 
   try {
@@ -14,7 +15,7 @@ export async function authenticate(req, res, next) {
     const user = await findUserById(payload.sub);
 
     if (!user) {
-      return res.status(401).json({ error: "User not found" });
+      return sendError(res, 401, "User not found");
     }
 
     req.user = {
@@ -35,6 +36,6 @@ export async function authenticate(req, res, next) {
 
     next();
   } catch {
-    return res.status(401).json({ error: "Invalid or expired access token" });
+    return sendError(res, 401, "Invalid or expired access token");
   }
 }

@@ -1,12 +1,13 @@
 import express, { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
-import { env } from "../config/env.js";
 import {
   processStoredStripeEvent,
   storeStripeWebhookEvent,
   verifyStripeWebhookRequest
-} from "../lib/stripe-service.js";
+} from "../services/stripe-service.js";
+import { asyncHandler, sendSuccess } from "../utils/http.js";
+import { logger } from "../utils/logger.js";
 
 const router = Router();
 
@@ -20,6 +21,7 @@ const stripeWebhookLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: {
+    success: false,
     error: "Too many webhook requests. Please try again later."
   }
 });
@@ -28,57 +30,48 @@ router.post(
   "/api/stripe/webhook/:userId",
   stripeWebhookLimiter,
   express.raw({ type: "application/json", limit: "1mb" }),
-  async (req, res, next) => {
-    try {
-      const { userId } = stripeWebhookParamsSchema.parse(req.params);
-      const isHttps = req.secure || req.get("x-forwarded-proto") === "https";
+  asyncHandler(async (req, res) => {
+    const { userId } = stripeWebhookParamsSchema.parse(req.params);
 
-      if (env.isProduction && !isHttps) {
-        return res.status(400).json({ error: "HTTPS is required" });
-      }
+    const { user, event, eventId, eventType } = await verifyStripeWebhookRequest({
+      userId,
+      signature: req.get("stripe-signature"),
+      rawBody: req.body
+    });
 
-      const { user, event, eventId, eventType } = await verifyStripeWebhookRequest({
-        userId,
-        signature: req.get("stripe-signature"),
-        rawBody: req.body
-      });
+    const storedWebhookEvent = await storeStripeWebhookEvent({
+      userId: user.id,
+      eventId,
+      eventType,
+      event
+    });
+    const { duplicate } = storedWebhookEvent;
 
-      const storedWebhookEvent = await storeStripeWebhookEvent({
-        userId: user.id,
-        eventId,
-        eventType,
-        event
-      });
-      const { duplicate } = storedWebhookEvent;
-
-      const responseBody = duplicate
+    sendSuccess(
+      res,
+      200,
+      duplicate
         ? { received: true, duplicate: true, eventId, eventType }
-        : { received: true, eventId, eventType };
+        : { received: true, eventId, eventType }
+    );
 
-      res.status(200).json(responseBody);
-
-      if (!duplicate) {
-        queueMicrotask(() => {
-          processStoredStripeEvent({
-            stripeEventId: storedWebhookEvent.event?.id,
+    if (!duplicate) {
+      queueMicrotask(() => {
+        processStoredStripeEvent({
+          stripeEventId: storedWebhookEvent.event?.id,
+          userId: user.id,
+          event
+        }).catch((error) => {
+          logger.error("Stored Stripe event failed after acknowledgement", {
             userId: user.id,
-            event
-          }).catch((error) => {
-            console.error("[STRIPE WEBHOOK] Failed to process stored event.", {
-              userId: user.id,
-              eventId,
-              eventType,
-              message: error.message
-            });
+            eventId,
+            eventType,
+            message: error.message
           });
         });
-      }
-
-      return undefined;
-    } catch (error) {
-      return next(error);
+      });
     }
-  }
+  })
 );
 
 export default router;
