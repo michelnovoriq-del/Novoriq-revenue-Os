@@ -4,11 +4,14 @@ import { fileURLToPath } from "url";
 import { z } from "zod";
 import { logger } from "../utils/logger.js";
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const appRoot = path.resolve(__dirname, "../../");
+const workspaceRoot = path.resolve(appRoot, "../..");
+
+dotenv.config({
+  path: path.resolve(workspaceRoot, ".env")
+});
 
 function requiredString(message) {
   return z
