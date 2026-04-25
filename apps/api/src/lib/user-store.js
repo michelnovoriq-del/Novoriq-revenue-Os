@@ -1,4 +1,5 @@
 import { prisma } from "./prisma.js";
+import { centsToDollars, normalizeStoredCents } from "./money.js";
 
 function normalizeEmail(email) {
   return typeof email === "string" ? email.trim().toLowerCase() : email;
@@ -34,9 +35,11 @@ function mapUserRecord(user) {
     subscriptionTier: user.subscriptionTier ?? null,
     performanceFeePercentage:
       typeof user.performanceFeePercentage === "number" ? user.performanceFeePercentage : null,
-    unpaidPerformanceBalance:
+    unpaidPerformanceBalance: centsToDollars(user.unpaidPerformanceBalance),
+    unpaidPerformanceBalanceCents:
       typeof user.unpaidPerformanceBalance === "number" ? user.unpaidPerformanceBalance : 0,
-    totalRecoveredRevenue:
+    totalRecoveredRevenue: centsToDollars(user.totalRecoveredRevenue),
+    totalRecoveredRevenueCents:
       typeof user.totalRecoveredRevenue === "number" ? user.totalRecoveredRevenue : 0,
     accessExpiration,
     subscription_expires_at: accessExpiration,
@@ -67,10 +70,14 @@ function toPrismaUserData(user) {
     subscriptionTier: user.subscriptionTier ?? null,
     performanceFeePercentage:
       typeof user.performanceFeePercentage === "number" ? user.performanceFeePercentage : null,
-    unpaidPerformanceBalance:
-      typeof user.unpaidPerformanceBalance === "number" ? user.unpaidPerformanceBalance : 0,
-    totalRecoveredRevenue:
-      typeof user.totalRecoveredRevenue === "number" ? user.totalRecoveredRevenue : 0,
+    unpaidPerformanceBalance: normalizeStoredCents({
+      cents: user.unpaidPerformanceBalanceCents,
+      amount: user.unpaidPerformanceBalance
+    }),
+    totalRecoveredRevenue: normalizeStoredCents({
+      cents: user.totalRecoveredRevenueCents,
+      amount: user.totalRecoveredRevenue
+    }),
     accessExpiration,
     stripeRestrictedKey: user.stripeRestrictedKey ?? null,
     webhookSecret: user.webhookSecret ?? null,

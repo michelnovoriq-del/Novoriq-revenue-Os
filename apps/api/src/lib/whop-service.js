@@ -97,14 +97,14 @@ function decodeWebhookSecret(webhookSecret) {
   return Buffer.from(webhookSecret.slice("whsec_".length), "base64");
 }
 
-function verifyWhopWebhookSignature({ headers, rawBody }) {
+export function verifyWhopWebhookSignature({ headers, rawBody }) {
   if (!env.WHOP_WEBHOOK_SECRET) {
     if (!hasWarnedAboutMissingSecret) {
-      logger.warn("WHOP_WEBHOOK_SECRET is not configured. Signature verification is disabled.");
+      logger.warn("WHOP_WEBHOOK_SECRET is not configured. Rejecting Whop webhook.");
       hasWarnedAboutMissingSecret = true;
     }
 
-    return true;
+    return false;
   }
 
   const webhookId = getHeaderValue(headers, "webhook-id");

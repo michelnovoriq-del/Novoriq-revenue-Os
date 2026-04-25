@@ -1,1 +1,4 @@
-export { queueWhopWebhookProcessing } from "../lib/whop-service.js";
+export {
+  queueWhopWebhookProcessing,
+  verifyWhopWebhookSignature
+} from "../lib/whop-service.js";

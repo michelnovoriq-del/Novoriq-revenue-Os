@@ -85,6 +85,10 @@ if (!parsed.success) {
   throw new Error("Invalid environment configuration");
 }
 
+if (process.env.NODE_ENV === "production" && !process.env.WHOP_WEBHOOK_SECRET) {
+  throw new Error("WHOP_WEBHOOK_SECRET is required in production");
+}
+
 const dataPath = (relativePath) => path.resolve(appRoot, relativePath);
 
 export const env = {

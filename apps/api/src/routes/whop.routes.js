@@ -1,6 +1,9 @@
 import express, { Router } from "express";
-import { queueWhopWebhookProcessing } from "../services/whop-service.js";
-import { sendSuccess } from "../utils/http.js";
+import {
+  queueWhopWebhookProcessing,
+  verifyWhopWebhookSignature
+} from "../services/whop-service.js";
+import { sendError, sendSuccess } from "../utils/http.js";
 import { logger } from "../utils/logger.js";
 
 const router = Router();
@@ -10,12 +13,17 @@ router.post(
   express.raw({ type: "application/json", limit: "1mb" }),
   (req, res) => {
     const rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : "";
+
+    if (!verifyWhopWebhookSignature({ headers: req.headers, rawBody })) {
+      return res.sendStatus(401);
+    }
+
     let parsedBody = null;
 
     try {
       parsedBody = rawBody ? JSON.parse(rawBody) : null;
     } catch {
-      parsedBody = null;
+      return sendError(res, 400, "Invalid JSON payload");
     }
 
     sendSuccess(res, 200, { received: true });

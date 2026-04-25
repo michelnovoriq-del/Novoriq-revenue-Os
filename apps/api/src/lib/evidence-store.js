@@ -1,5 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma.js";
+import {
+  centsToDollars,
+  normalizeNullableStoredCents,
+  normalizeStoredCents,
+  nullableCentsToDollars
+} from "./money.js";
 
 function toDate(value) {
   if (!value) {
@@ -54,7 +60,8 @@ function mapEvidenceRecord(evidence) {
     chargeId: evidence.chargeId,
     disputeId: evidence.disputeId ?? null,
     disputeStatus: evidence.disputeStatus ?? "none",
-    recoveredAmount:
+    recoveredAmount: nullableCentsToDollars(evidence.recoveredAmount),
+    recoveredAmountCents:
       typeof evidence.recoveredAmount === "number" ? evidence.recoveredAmount : null,
     receiptIp: evidence.receiptIp,
     chargeTimestamp: toDate(evidence.chargeTimestamp),
@@ -73,8 +80,10 @@ function mapRecoveryLogRecord(recoveryLog) {
     userId: recoveryLog.userId,
     chargeId: recoveryLog.chargeId,
     disputeId: recoveryLog.disputeId,
-    recoveredAmount: recoveryLog.recoveredAmount,
-    platformFee: recoveryLog.platformFee,
+    recoveredAmount: centsToDollars(recoveryLog.recoveredAmount),
+    recoveredAmountCents: recoveryLog.recoveredAmount,
+    platformFee: centsToDollars(recoveryLog.platformFee),
+    platformFeeCents: recoveryLog.platformFee,
     status: recoveryLog.status,
     billedAt: toDate(recoveryLog.billedAt),
     createdAt: toDate(recoveryLog.createdAt)
@@ -97,11 +106,13 @@ function mapEvidenceBundle(record) {
           id: record.user.id,
           email: record.user.email,
           subscriptionTier: record.user.subscriptionTier ?? null,
-          unpaidPerformanceBalance:
+          unpaidPerformanceBalance: centsToDollars(record.user.unpaidPerformanceBalance),
+          unpaidPerformanceBalanceCents:
             typeof record.user.unpaidPerformanceBalance === "number"
               ? record.user.unpaidPerformanceBalance
               : 0,
-          totalRecoveredRevenue:
+          totalRecoveredRevenue: centsToDollars(record.user.totalRecoveredRevenue),
+          totalRecoveredRevenueCents:
             typeof record.user.totalRecoveredRevenue === "number"
               ? record.user.totalRecoveredRevenue
               : 0
@@ -189,9 +200,15 @@ export async function upsertEvidence({
   disputeId,
   disputeStatus,
   recoveredAmount,
+  recoveredAmountCents,
   receiptIp,
   chargeTimestamp
 }) {
+  const nextRecoveredAmountCents = normalizeNullableStoredCents({
+    cents: recoveredAmountCents,
+    amount: recoveredAmount
+  });
+
   const evidence = await prisma.evidence.upsert({
     where: { chargeId },
     update: {
@@ -199,12 +216,7 @@ export async function upsertEvidence({
       sessionId: sessionId ?? undefined,
       disputeId: disputeId ?? undefined,
       disputeStatus: disputeStatus ?? undefined,
-      recoveredAmount:
-        typeof recoveredAmount === "number"
-          ? recoveredAmount
-          : recoveredAmount === null
-            ? null
-            : undefined,
+      recoveredAmount: nextRecoveredAmountCents,
       receiptIp: receiptIp ?? undefined,
       chargeTimestamp: toDate(chargeTimestamp) ?? undefined
     },
@@ -214,7 +226,7 @@ export async function upsertEvidence({
       chargeId,
       disputeId: disputeId ?? null,
       disputeStatus: disputeStatus ?? "none",
-      recoveredAmount: typeof recoveredAmount === "number" ? recoveredAmount : null,
+      recoveredAmount: nextRecoveredAmountCents ?? null,
       receiptIp: receiptIp ?? "",
       chargeTimestamp: toDate(chargeTimestamp) ?? new Date()
     },
@@ -242,16 +254,27 @@ export async function createRecoveryLog({
   chargeId,
   disputeId,
   recoveredAmount,
-  platformFee
+  recoveredAmountCents,
+  platformFee,
+  platformFeeCents
 }) {
+  const storedRecoveredAmountCents = normalizeStoredCents({
+    cents: recoveredAmountCents,
+    amount: recoveredAmount
+  });
+  const storedPlatformFeeCents = normalizeStoredCents({
+    cents: platformFeeCents,
+    amount: platformFee
+  });
+
   const recoveryLog = await prisma.$transaction(async (tx) => {
     const createdRecoveryLog = await tx.recoveryLog.create({
       data: {
         userId,
         chargeId,
         disputeId,
-        recoveredAmount,
-        platformFee,
+        recoveredAmount: storedRecoveredAmountCents,
+        platformFee: storedPlatformFeeCents,
         status: "pending"
       }
     });
@@ -260,10 +283,10 @@ export async function createRecoveryLog({
       where: { id: userId },
       data: {
         unpaidPerformanceBalance: {
-          increment: platformFee
+          increment: storedPlatformFeeCents
         },
         totalRecoveredRevenue: {
-          increment: recoveredAmount
+          increment: storedRecoveredAmountCents
         }
       }
     });
@@ -282,21 +305,27 @@ export async function hasRecoveryLogForDispute(disputeId) {
   return Boolean(recoveryLog);
 }
 
-export async function markPendingRecoveryLogsBilledForUser(userId) {
+export async function claimPendingRecoveryLogs(limit = 100) {
   return prisma.$transaction(async (tx) => {
     const billedAt = new Date();
-    const pendingLogs = await tx.recoveryLog.findMany({
-      where: {
-        userId,
-        status: "pending"
-      }
-    });
+    const pendingRows = await tx.$queryRaw`
+      SELECT id
+      FROM recovery_logs
+      WHERE status = 'pending'
+      ORDER BY "createdAt" ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT ${limit}
+    `;
 
-    if (pendingLogs.length === 0) {
+    const pendingLogIds = Array.isArray(pendingRows)
+      ? pendingRows
+          .map((row) => (typeof row?.id === "string" ? row.id : null))
+          .filter(Boolean)
+      : [];
+
+    if (pendingLogIds.length === 0) {
       return [];
     }
-
-    const pendingLogIds = pendingLogs.map((recoveryLog) => recoveryLog.id);
 
     await tx.recoveryLog.updateMany({
       where: {
@@ -311,13 +340,18 @@ export async function markPendingRecoveryLogsBilledForUser(userId) {
       }
     });
 
-    return pendingLogs.map((recoveryLog) =>
-      mapRecoveryLogRecord({
-        ...recoveryLog,
-        status: "billed",
-        billedAt
-      })
-    );
+    const claimedLogs = await tx.recoveryLog.findMany({
+      where: {
+        id: {
+          in: pendingLogIds
+        }
+      },
+      orderBy: {
+        createdAt: "asc"
+      }
+    });
+
+    return claimedLogs.map(mapRecoveryLogRecord);
   });
 }
 
@@ -444,14 +478,17 @@ export async function getAdminOverviewMetrics() {
   return {
     totalUsers,
     activeUsers,
-    totalRecoveredRevenue: userRevenueAggregate._sum.totalRecoveredRevenue ?? 0,
-    totalPlatformFees: recoveryFeeAggregate._sum.platformFee ?? 0,
+    totalRecoveredRevenue: centsToDollars(userRevenueAggregate._sum.totalRecoveredRevenue ?? 0),
+    totalRecoveredRevenueCents: userRevenueAggregate._sum.totalRecoveredRevenue ?? 0,
+    totalPlatformFees: centsToDollars(recoveryFeeAggregate._sum.platformFee ?? 0),
+    totalPlatformFeesCents: recoveryFeeAggregate._sum.platformFee ?? 0,
     recentDisputes: recentDisputes.map((evidence) => ({
       userEmail: evidence.user.email,
       chargeId: evidence.chargeId,
       disputeId: evidence.disputeId,
       disputeStatus: evidence.disputeStatus,
-      recoveredAmount: evidence.recoveredAmount,
+      recoveredAmount: nullableCentsToDollars(evidence.recoveredAmount),
+      recoveredAmountCents: evidence.recoveredAmount ?? null,
       createdAt: toDate(evidence.createdAt)
     }))
   };
@@ -480,8 +517,10 @@ export async function listAdminUsers() {
     id: user.id,
     email: user.email,
     subscriptionTier: user.subscriptionTier ?? null,
-    unpaidPerformanceBalance: user.unpaidPerformanceBalance ?? 0,
-    totalRecoveredRevenue: user.totalRecoveredRevenue ?? 0,
+    unpaidPerformanceBalance: centsToDollars(user.unpaidPerformanceBalance ?? 0),
+    unpaidPerformanceBalanceCents: user.unpaidPerformanceBalance ?? 0,
+    totalRecoveredRevenue: centsToDollars(user.totalRecoveredRevenue ?? 0),
+    totalRecoveredRevenueCents: user.totalRecoveredRevenue ?? 0,
     stripeConnected: Boolean(user.stripeRestrictedKey),
     createdAt: toDate(user.createdAt)
   }));
@@ -517,9 +556,11 @@ export async function getUserMetrics(userId) {
   }
 
   return {
-    recoveredRevenue: user.totalRecoveredRevenue ?? 0,
+    recoveredRevenue: centsToDollars(user.totalRecoveredRevenue ?? 0),
+    recoveredRevenueCents: user.totalRecoveredRevenue ?? 0,
     disputesWon,
     pendingDisputes,
-    currentBalance: user.unpaidPerformanceBalance ?? 0
+    currentBalance: centsToDollars(user.unpaidPerformanceBalance ?? 0),
+    currentBalanceCents: user.unpaidPerformanceBalance ?? 0
   };
 }

@@ -27,6 +27,7 @@ import {
   decrypt,
   encrypt
 } from "./secret-encryption.js";
+import { calculateFeeCents, centsToDollars } from "./money.js";
 import { findUserById, updateUser } from "./user-store.js";
 import { createHttpError } from "../utils/http.js";
 import { logger } from "../utils/logger.js";
@@ -184,10 +185,6 @@ function getPerformanceFeeRate(user) {
   }
 }
 
-function toCurrencyAmount(amountInMinorUnits) {
-  return typeof amountInMinorUnits === "number" ? amountInMinorUnits / 100 : 0;
-}
-
 export function buildStripeWebhookUrl(userId) {
   return new URL(`/api/stripe/webhook/${userId}`, env.APP_BASE_URL).toString();
 }
@@ -313,7 +310,7 @@ async function handleChargeDisputeCreated({ user, event }) {
     chargeId,
     disputeId,
     disputeStatus: "submitted",
-    recoveredAmount: bundle.evidence.recoveredAmount,
+    recoveredAmountCents: bundle.evidence.recoveredAmountCents,
     receiptIp: bundle.evidence.receiptIp,
     chargeTimestamp: bundle.evidence.chargeTimestamp
   });
@@ -345,7 +342,14 @@ async function handleChargeDisputeClosed({ user, event }) {
     throw createHttpError(404, "No evidence found for the disputed charge");
   }
 
-  const recoveredAmount = disputeStatus === "won" ? toCurrencyAmount(dispute.amount) : null;
+  if (disputeStatus === "won" && typeof dispute?.amount !== "number") {
+    throw createHttpError(422, "charge.dispute.closed event is missing dispute.amount");
+  }
+
+  const recoveredAmountCents =
+    disputeStatus === "won" && typeof dispute?.amount === "number"
+      ? Math.max(0, Math.round(dispute.amount))
+      : null;
 
   await upsertEvidence({
     userId: user.id,
@@ -353,7 +357,7 @@ async function handleChargeDisputeClosed({ user, event }) {
     chargeId,
     disputeId,
     disputeStatus,
-    recoveredAmount,
+    recoveredAmountCents,
     receiptIp: evidence.receiptIp,
     chargeTimestamp: evidence.chargeTimestamp
   });
@@ -367,14 +371,17 @@ async function handleChargeDisputeClosed({ user, event }) {
     return;
   }
 
-  const platformFee = recoveredAmount * getPerformanceFeeRate(user);
+  const platformFeeCents = calculateFeeCents(
+    recoveredAmountCents,
+    getPerformanceFeeRate(user)
+  );
 
   await createRecoveryLog({
     userId: user.id,
     chargeId,
     disputeId,
-    recoveredAmount,
-    platformFee
+    recoveredAmountCents,
+    platformFeeCents
   });
 
   await notifyDisputeWon({
@@ -382,8 +389,10 @@ async function handleChargeDisputeClosed({ user, event }) {
     userEmail: user.email,
     disputeId,
     chargeId,
-    recoveredAmount,
-    platformFee
+    recoveredAmount: centsToDollars(recoveredAmountCents),
+    recoveredAmountCents,
+    platformFee: centsToDollars(platformFeeCents),
+    platformFeeCents
   });
 }
 

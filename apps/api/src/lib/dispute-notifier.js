@@ -1,4 +1,5 @@
 import { env } from "../config/env.js";
+import { formatCentsAsCurrency } from "./money.js";
 import { logger } from "../utils/logger.js";
 
 const RESEND_API_URL = "https://api.resend.com/emails";
@@ -57,20 +58,36 @@ export async function notifyDisputeWon({
   disputeId,
   chargeId,
   recoveredAmount,
-  platformFee
+  recoveredAmountCents,
+  platformFee,
+  platformFeeCents
 }) {
+  const recoveredValue =
+    typeof recoveredAmountCents === "number"
+      ? formatCentsAsCurrency(recoveredAmountCents)
+      : Number(recoveredAmount ?? 0).toFixed(2);
+  const platformFeeValue =
+    typeof platformFeeCents === "number"
+      ? formatCentsAsCurrency(platformFeeCents)
+      : Number(platformFee ?? 0).toFixed(2);
+
   await sendNotification({
     to: buildRecipients(userEmail),
     subject: `Recovered revenue for ${chargeId}`,
-    text: `Dispute ${disputeId} was won for user ${userId}. Recovered amount: ${recoveredAmount}. Platform fee: ${platformFee}.`
+    text: `Dispute ${disputeId} was won for user ${userId}. Recovered amount: ${recoveredValue}. Platform fee: ${platformFeeValue}.`
   });
 }
 
-export async function notifyBillingRun({ userEmail, amountDue, recoveryCount }) {
+export async function notifyBillingRun({ userEmail, amountDue, amountDueCents, recoveryCount }) {
+  const amountDueValue =
+    typeof amountDueCents === "number"
+      ? formatCentsAsCurrency(amountDueCents)
+      : Number(amountDue ?? 0).toFixed(2);
+
   await sendNotification({
     to: buildRecipients(userEmail),
     subject: "Performance billing notice",
-    text: `A billing run marked ${recoveryCount} recovery items for invoicing. Amount due: ${amountDue}.`
+    text: `A billing run marked ${recoveryCount} recovery items for invoicing. Amount due: ${amountDueValue}.`
   });
 }
 
